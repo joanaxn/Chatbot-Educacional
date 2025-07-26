@@ -1,0 +1,17 @@
+body {
+  margin: 0;
+  background-color: #f2f2f2; /* cinzento claro SIUPT */
+  font-family: "Segoe UI", Arial, sans-serif;
+  color: #333;
+}
+
+.page-container {
+  padding: 40px;
+  text-align: center;
+}
+
+.page-title {
+  font-size: 32px;
+  font-weight: 300;
+  color: #333;
+}

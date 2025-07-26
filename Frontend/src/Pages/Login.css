@@ -1,0 +1,68 @@
+.login-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: calc(100vh - 80px); /* Adjusted for navbar height */
+  background-color: background-color;
+}
+
+.login-box {
+  background: #e0e0e0; /* MUDAR A COR DO LOGIN AQUI */
+  padding: 40px;
+  border-radius: 10px;
+  width: 400px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  font-family: Arial, sans-serif;
+  text-align: center;
+}
+
+.login-box h2 {
+  margin-bottom: 20px;
+}
+
+.login-box input,
+.login-box select {
+  width: 100%;
+  padding: 10px;
+  margin-bottom: 15px;
+  border-radius: 5px;
+  border: 1px solid #ccc;
+}
+
+.login-box button {
+  padding: 10px 20px;
+  margin: 6px 4px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.login-box .btn-login {
+  background-color: royalblue;
+  color: white;
+}
+
+.login-box .btn-docente {
+  background-color: indigo;
+  color: white;
+}
+
+.login-box .btn-aluno {
+  background-color: teal;
+  color: white;
+}
+
+.login-box .btn-db {
+  background-color: darkgreen;
+  color: white;
+}
+
+.login-box .btn-files {
+  background-color: #9333ea;
+  color: white;
+}
+
+.login-box .error-msg {
+  color: red;
+  margin-top: 10px;
+}
