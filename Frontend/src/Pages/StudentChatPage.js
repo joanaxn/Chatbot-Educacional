@@ -9,19 +9,21 @@ function StudentChatPage() {
   const [ficheiros, setFicheiros] = useState([]);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    const alunoLogado = JSON.parse(localStorage.getItem('alunoLogado'));
-    const cadeiraSelecionada = localStorage.getItem('cadeiraSelecionada');
-    const ficheirosPorCadeira = JSON.parse(localStorage.getItem('ficheirosPorCadeira')) || {};
+useEffect(() => {
+  const alunoLogado = JSON.parse(localStorage.getItem('alunoLogado'));
+  const cadeiraSelecionada = localStorage.getItem('cadeiraSelecionada');
+  const ficheirosPorCadeira = JSON.parse(localStorage.getItem('ficheirosPorCadeira')) || {};
 
-    if (!alunoLogado || !cadeiraSelecionada) {
-      navigate('/');
-    } else {
-      setAluno(alunoLogado);
-      setCadeira(cadeiraSelecionada);
-      setFicheiros(ficheirosPorCadeira[cadeiraSelecionada] || []);
-    }
-  }, [navigate]);
+  if (!alunoLogado  || !cadeiraSelecionada) {
+    navigate('/');
+  } else {
+    // Junta o curso ao aluno
+    setAluno({alunoLogado });
+    setCadeira(cadeiraSelecionada);
+    setFicheiros(ficheirosPorCadeira[cadeiraSelecionada] || []);
+  }
+}, [navigate]);
+
 
   const enviarMensagem = async (msg) => {
     if (msg.trim() === '') return;
