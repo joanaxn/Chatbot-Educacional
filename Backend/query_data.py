@@ -8,14 +8,21 @@ from get_embedding_function import get_embedding_function
 CHROMA_PATH = "chroma"
 
 PROMPT_TEMPLATE = """
-Answer the question based only on the following context:
+Responde à seguinte pergunta com base apenas no conteúdo abaixo.
+
+Utiliza apenas a informação apresentada, mesmo que reestruturada com as tuas palavras.
+
+A resposta deve estar em português claro e objetivo.  
+Se o conceito estiver apenas parcialmente implícito, podes construí-lo com base nisso.  
+Não inventes informação fora do contexto fornecido.
 
 {context}
 
 ---
 
-Answer the question based on the above context: {question}
+Pergunta: {question}
 """
+
 
 
 def main():
