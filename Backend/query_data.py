@@ -1,60 +1,64 @@
-import argparse
+from pathlib import Path
 from langchain_chroma import Chroma
-from langchain.prompts import ChatPromptTemplate
-from langchain_ollama import OllamaLLM
+from langchain_ollama.embeddings import OllamaEmbeddings
+from langchain_ollama.llms import OllamaLLM
+from langchain.chains import RetrievalQA
+from langchain.prompts import PromptTemplate
+import time
 
-from get_embedding_function import get_embedding_function
+DB_DIR = Path("db")
 
-CHROMA_PATH = "chroma"
+def responder_pergunta(pergunta, cadeira):
+    cadeira_id = cadeira.replace(" ", "_").lower()
+    persist_dir = DB_DIR / cadeira_id
 
-PROMPT_TEMPLATE = """
-Responde à seguinte pergunta com base apenas no conteúdo abaixo.
+    if not persist_dir.exists():
+        return "⚠️ Materiais dessa cadeira não foram carregados ainda."
 
-Utiliza apenas a informação apresentada, mesmo que reestruturada com as tuas palavras.
+    embeddings = OllamaEmbeddings(model="nomic-embed-text")
+    vectordb = Chroma(persist_directory=str(persist_dir), embedding_function=embeddings)
+    retriever = vectordb.as_retriever()
 
-A resposta deve estar em português claro e objetivo.  
-Se o conceito estiver apenas parcialmente implícito, podes construí-lo com base nisso.  
-Não inventes informação fora do contexto fornecido.
 
+
+    # Prompt para a resposta
+    prompt_template = PromptTemplate(
+        input_variables=["context", "question"],
+        template="""
+Baseia-te apenas no contexto abaixo para responder à pergunta. 
+Se a resposta não estiver no contexto, diz: "❌ Não encontrei informação suficiente nos documentos."
+
+Contexto:
 {context}
 
----
-
 Pergunta: {question}
-"""
+
+Resposta:"""
+    )
 
 
 
-def main():
-    # Create CLI.
-    parser = argparse.ArgumentParser()
-    parser.add_argument("query_text", type=str, help="The query text.")
-    args = parser.parse_args()
-    query_text = args.query_text
-    query_rag(query_text)
+    llm = OllamaLLM(model="gemma:2b-instruct")
 
 
-def query_rag(query_text: str):
-    # Prepare the DB.
-    embedding_function = get_embedding_function()
-    db = Chroma(persist_directory=CHROMA_PATH, embedding_function=embedding_function)
+    qa = RetrievalQA.from_chain_type(
+        llm=llm,
+        retriever=retriever,
+        chain_type="stuff",
+        chain_type_kwargs={"prompt": prompt_template}
+    )
 
-    # Search the DB.
-    results = db.similarity_search_with_score(query_text, k=5)
+    try:
+        start = time.time()
+        resposta = qa.invoke(pergunta)
+        end = time.time()
+        print(f"⏱️ Tempo de resposta: {end - start:.2f} segundos")
+    except Exception as e:
+        print(f"❌ Erro ao gerar resposta com o modelo: {e}")
+        return "❌ Ocorreu um erro ao gerar a resposta."
 
-    context_text = "\n\n---\n\n".join([doc.page_content for doc, _score in results])
-    prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
-    prompt = prompt_template.format(context=context_text, question=query_text)
-    # print(prompt)
+    resposta_str = resposta.strip() if isinstance(resposta, str) else resposta.get("result", "")
+    if not resposta_str or resposta_str.lower().startswith(("não sei", "não encontrei", "não tenho", "i don't know")):
+        return "❌ Não encontrei informação suficiente nos documentos."
 
-    model = OllamaLLM(model="gemma3")
-    response_text = model.invoke(prompt)
-
-    sources = [doc.metadata.get("id", None) for doc, _score in results]
-    formatted_response = f"Response: {response_text}\nSources: {sources}"
-    print(formatted_response)
-    return response_text
-
-
-if __name__ == "__main__":
-    main()
+    return resposta_str

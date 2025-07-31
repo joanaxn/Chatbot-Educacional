@@ -9,26 +9,27 @@ function StudentChatPage() {
   const [ficheiros, setFicheiros] = useState([]);
   const navigate = useNavigate();
 
-useEffect(() => {
-  const alunoLogado = JSON.parse(localStorage.getItem('alunoLogado'));
-  const cadeiraSelecionada = localStorage.getItem('cadeiraSelecionada');
-  const ficheirosPorCadeira = JSON.parse(localStorage.getItem('ficheirosPorCadeira')) || {};
+  useEffect(() => {
+    const alunoLogado = JSON.parse(localStorage.getItem('alunoLogado'));
+    const cadeiraSelecionada = localStorage.getItem('cadeiraSelecionada');
+    const ficheirosPorCadeira = JSON.parse(localStorage.getItem('ficheirosPorCadeira')) || {};
 
-  if (!alunoLogado  || !cadeiraSelecionada) {
-    navigate('/');
-  } else {
-    // Junta o curso ao aluno
-    setAluno({alunoLogado });
-    setCadeira(cadeiraSelecionada);
-    setFicheiros(ficheirosPorCadeira[cadeiraSelecionada] || []);
-  }
-}, [navigate]);
-
+    if (!alunoLogado || !cadeiraSelecionada) {
+      navigate('/');
+    } else {
+      setAluno(alunoLogado);
+      setCadeira(cadeiraSelecionada);
+      setFicheiros(ficheirosPorCadeira[cadeiraSelecionada] || []);
+    }
+  }, [navigate]);
 
   const enviarMensagem = async (msg) => {
     if (msg.trim() === '') return;
 
     setConversa(prev => [...prev, { texto: msg, autor: 'aluno' }]);
+
+    // Adiciona loading
+    setConversa(prev => [...prev, { texto: "⏳ A responder...", autor: 'bot' }]);
 
     try {
       const response = await fetch('http://127.0.0.1:8000/perguntar', {
@@ -43,9 +44,21 @@ useEffect(() => {
       });
 
       const data = await response.json();
+
+      // Remove loading antes de mostrar resposta real
+      setConversa(prev =>
+        prev.filter(m => m.texto !== "⏳ A responder...")
+      );
+
       setConversa(prev => [...prev, { texto: data.resposta, autor: 'bot' }]);
     } catch (error) {
       console.error('Erro ao contactar o backend:', error);
+
+      // Remove loading antes de mostrar erro
+      setConversa(prev =>
+        prev.filter(m => m.texto !== "⏳ A responder...")
+      );
+
       setConversa(prev => [...prev, { texto: '⚠️ Erro ao contactar o servidor.', autor: 'bot' }]);
     }
   };
@@ -67,7 +80,6 @@ useEffect(() => {
 
   return (
     <div style={{ display: 'flex', height: '100vh', fontFamily: 'Arial' }}>
-      
       {/* COLUNA DO CHAT */}
       <div style={{ flex: 2, padding: 20, borderRight: '1px solid #ccc' }}>
         <h2>🤖 Chatbot da cadeira: {cadeira}</h2>
