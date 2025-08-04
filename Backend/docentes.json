@@ -1,0 +1,17 @@
+[
+  {
+    "nome": "Ana Silva",
+    "email": "ana.silva@upt.pt",
+    "password": "ana123",
+    "cadeiras": ["IA", "Redes"]
+  },
+  {
+    "nome": "Carlos Mendes",
+    "email": "carlos.mendes@upt.pt",
+    "password": "carlos123",
+    "cadeiras": ["Design Gráfico", "Animação"]
+  }
+]
+
+
+

@@ -2,67 +2,63 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  min-height: calc(100vh - 80px); /* Adjusted for navbar height */
-  background-color: background-color;
+  height: 100vh;
+  background-color: #f5f6fa;
 }
 
 .login-box {
-  background: #e0e0e0; /* MUDAR A COR DO LOGIN AQUI */
+  background: #e0e0e0;
   padding: 40px;
-  border-radius: 10px;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
   width: 400px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  font-family: Arial, sans-serif;
-  text-align: center;
 }
 
 .login-box h2 {
-  margin-bottom: 20px;
+  text-align: center;
+  margin-bottom: 30px;
 }
 
 .login-box input,
 .login-box select {
   width: 100%;
   padding: 10px;
-  margin-bottom: 15px;
-  border-radius: 5px;
+  margin: 10px 0;
   border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 15px;
 }
 
-.login-box button {
-  padding: 10px 20px;
-  margin: 6px 4px;
+.btn-login {
+  width: 100%;
+  padding: 12px;
+  background-color: royalblue;
+  color: black; /* ✅ TEXTO PRETO */
+  border: none;
+  border-radius: 6px;
+  margin-top: 10px;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.error-msg {
+  color: red;
+  margin-top: 10px;
+  text-align: center;
+}
+
+.btn-docente,
+.btn-aluno {
+  width: 48%;
+  margin: 10px 1%;
+  padding: 10px;
+  background-color: #eee;
   border: none;
   border-radius: 6px;
   cursor: pointer;
 }
 
-.login-box .btn-login {
-  background-color: royalblue;
-  color: white;
-}
-
-.login-box .btn-docente {
-  background-color: indigo;
-  color: white;
-}
-
-.login-box .btn-aluno {
-  background-color: teal;
-  color: white;
-}
-
-.login-box .btn-db {
-  background-color: darkgreen;
-  color: white;
-}
-
-.login-box .btn-files {
-  background-color: #9333ea;
-  color: white;
-}
-
-.login-box .error-msg {
-  color: red;
-  margin-top: 10px;
+.btn-docente:hover,
+.btn-aluno:hover {
+  background-color: #ddd;
 }

@@ -29,26 +29,26 @@ function DashBoardDocente() {
 
   const removerFicheiro = (ficheiro) => {
     const copia = { ...ficheirosPorCadeira };
-    copia[cadeiraAtiva] = copia[cadeiraAtiva].filter(f => f !== ficheiro);
-    localStorage.setItem('ficheirosPorCadeira', JSON.stringify(copia));
-    setFicheirosPorCadeira(copia);
+    if (copia[cadeiraAtiva]) {
+      copia[cadeiraAtiva] = copia[cadeiraAtiva].filter(f => f !== ficheiro);
+      localStorage.setItem('ficheirosPorCadeira', JSON.stringify(copia));
+      setFicheirosPorCadeira(copia);
+    }
   };
 
   if (!docente) return null;
 
   return (
     <div style={{ padding: '40px 60px' }}>
-      {/* TÍTULO FORA DO CONTAINER */}
       <h2 style={{ fontSize: '28px', marginBottom: '30px' }}>📚 Dashboard do Docente</h2>
 
-      {/* CONTAINERS ALINHADOS */}
       <div style={{
         display: 'flex',
         justifyContent: 'center',
         gap: '40px',
         marginTop: '40px'
       }}>
-        {/* CONTAINER ESQUERDO */}
+        {/* Painel Esquerdo */}
         <div style={{
           background: '#e0e0e0',
           padding: '30px',
@@ -59,11 +59,16 @@ function DashBoardDocente() {
           <p><strong>Bem-vindo(a),</strong> {docente.nome}</p>
 
           <h4>Cadeiras lecionadas:</h4>
-          <ul>
+          <ul style={{ listStyleType: 'disc', paddingLeft: '20px' }}>
             {docente.cadeiras.map((c, idx) => (
               <li
                 key={idx}
-                style={{ cursor: 'pointer', color: cadeiraAtiva === c ? 'blue' : 'black' }}
+                style={{
+                  cursor: 'pointer',
+                  color: cadeiraAtiva === c ? 'blue' : 'black',
+                  fontWeight: cadeiraAtiva === c ? 'bold' : 'normal',
+                  marginBottom: '6px'
+                }}
                 onClick={() => setCadeiraAtiva(c)}
               >
                 {c}
@@ -71,7 +76,6 @@ function DashBoardDocente() {
             ))}
           </ul>
 
-          {/* BOTÕES */}
           <div style={{ display: 'flex', justifyContent: 'center', gap: '20px', marginTop: '40px' }}>
             <button
               style={{
@@ -100,9 +104,9 @@ function DashBoardDocente() {
           </div>
         </div>
 
-        {/* CONTAINER DIREITO */}
+        {/* Painel Direito */}
         <div style={{
-          background:	'#e0e0e0',
+          background: '#e0e0e0',
           padding: '30px',
           borderRadius: '12px',
           width: '400px',
@@ -110,7 +114,7 @@ function DashBoardDocente() {
         }}>
           <h4>📁 Ficheiros enviados {cadeiraAtiva ? `em "${cadeiraAtiva}"` : ''}</h4>
           {cadeiraAtiva && ficheirosPorCadeira[cadeiraAtiva] ? (
-            <ul>
+            <ul style={{ paddingLeft: '0px' }}>
               {ficheirosPorCadeira[cadeiraAtiva].map((f, i) => (
                 <li
                   key={i}
@@ -118,7 +122,8 @@ function DashBoardDocente() {
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
-                    padding: '6px 0'
+                    padding: '6px 0',
+                    listStyleType: 'none'
                   }}
                 >
                   <span>{f}</span>

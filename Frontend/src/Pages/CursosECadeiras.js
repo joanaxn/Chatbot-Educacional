@@ -2,7 +2,7 @@
 
 export const cursos = {
   "Engenharia Informática": [
-    "Sistemas Distribuídos",
+    "",
     "Inteligência Artificial",
     "Programação Web"
   ],

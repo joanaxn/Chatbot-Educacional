@@ -1,0 +1,8 @@
+[
+  {
+    "nome": "Joana Nogueira",
+    "email": "joana@upt.pt",
+    "password": "1234",
+    "cadeiras": ["IA", "Redes"]
+  }
+]

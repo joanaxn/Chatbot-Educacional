@@ -12,14 +12,22 @@ function StudentChatPage() {
   useEffect(() => {
     const alunoLogado = JSON.parse(localStorage.getItem('alunoLogado'));
     const cadeiraSelecionada = localStorage.getItem('cadeiraSelecionada');
-    const ficheirosPorCadeira = JSON.parse(localStorage.getItem('ficheirosPorCadeira')) || {};
 
     if (!alunoLogado || !cadeiraSelecionada) {
       navigate('/');
     } else {
       setAluno(alunoLogado);
       setCadeira(cadeiraSelecionada);
-      setFicheiros(ficheirosPorCadeira[cadeiraSelecionada] || []);
+
+      fetch(`http://localhost:8000/ficheiros_confirmados?cadeira=${cadeiraSelecionada}`)
+        .then((res) => res.json())
+        .then((data) => {
+          setFicheiros(data.ficheiros || []);
+        })
+        .catch((err) => {
+          console.error("Erro ao buscar ficheiros confirmados:", err);
+          setFicheiros([]);
+        });
     }
   }, [navigate]);
 
@@ -27,38 +35,20 @@ function StudentChatPage() {
     if (msg.trim() === '') return;
 
     setConversa(prev => [...prev, { texto: msg, autor: 'aluno' }]);
-
-    // Adiciona loading
     setConversa(prev => [...prev, { texto: "⏳ A responder...", autor: 'bot' }]);
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/perguntar', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          pergunta: msg,
-          cadeira: cadeira
-        })
+      const response = await fetch(`http://127.0.0.1:8000/perguntar?pergunta=${encodeURIComponent(msg)}&cadeira=${encodeURIComponent(cadeira)}`, {
+        method: 'POST'
       });
 
       const data = await response.json();
 
-      // Remove loading antes de mostrar resposta real
-      setConversa(prev =>
-        prev.filter(m => m.texto !== "⏳ A responder...")
-      );
-
+      setConversa(prev => prev.filter(m => m.texto !== "⏳ A responder..."));
       setConversa(prev => [...prev, { texto: data.resposta, autor: 'bot' }]);
     } catch (error) {
       console.error('Erro ao contactar o backend:', error);
-
-      // Remove loading antes de mostrar erro
-      setConversa(prev =>
-        prev.filter(m => m.texto !== "⏳ A responder...")
-      );
-
+      setConversa(prev => prev.filter(m => m.texto !== "⏳ A responder..."));
       setConversa(prev => [...prev, { texto: '⚠️ Erro ao contactar o servidor.', autor: 'bot' }]);
     }
   };

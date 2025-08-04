@@ -1,0 +1,34 @@
+body {
+  font-family: sans-serif;
+  margin: 0;
+  padding: 0;
+}
+
+.upload-container {
+  padding: 40px;
+}
+
+.upload-box {
+  background-color: #eaeaea;
+  padding: 20px;
+  border-radius: 10px;
+  width: fit-content;
+  margin: 0 auto;
+}
+
+.submit-button {
+  background-color: #3b82f6;
+  color: white;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-top: 20px;
+}
+
+select {
+  padding: 6px;
+  margin-bottom: 10px;
+  width: 100%;
+  font-size: 16px;
+}

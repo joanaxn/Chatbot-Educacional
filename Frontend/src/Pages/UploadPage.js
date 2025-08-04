@@ -1,83 +1,80 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 
-function UploadFicheiros() {
-  const [docente, setDocente] = useState(null);
-  const [cadeiraSelecionada, setCadeiraSelecionada] = useState('');
-  const [ficheiro, setFicheiro] = useState(null);
-  const [mensagemStatus, setMensagemStatus] = useState(null);
-  const navigate = useNavigate();
+function UploadPage() {
+  const [cadeira, setCadeira] = useState('');
+  const [listaCadeiras, setListaCadeiras] = useState([]);
+  const [ficheiros, setFicheiros] = useState([]);
+  const [selecionados, setSelecionados] = useState([]);
+  const [mensagem, setMensagem] = useState('');
 
   useEffect(() => {
-    const user = JSON.parse(localStorage.getItem('docenteLogado'));
-    if (!user) {
-      navigate('/');
+    const docente = JSON.parse(localStorage.getItem('docenteLogado'));
+    if (docente) {
+      fetch(`http://localhost:8000/listar_cadeiras_docente?email=${docente.email}`)
+        .then((res) => res.json())
+        .then((data) => {
+          setListaCadeiras(data.cadeiras || []);
+        })
+        .catch(() => {
+          setMensagem('❌ Erro ao carregar as cadeiras.');
+        });
     } else {
-      setDocente(user);
+      setMensagem('❌ Docente não autenticado.');
     }
-  }, [navigate]);
+  }, []);
 
-  const handleUpload = async () => {
-    if (!cadeiraSelecionada || !ficheiro) {
-      mostrarMensagem('⚠️ Preenche todos os campos!', 'erro');
+  useEffect(() => {
+    if (cadeira) {
+      fetch(`http://localhost:8000/listar_ficheiros?cadeira=${cadeira}`)
+        .then((res) => res.json())
+        .then((data) => {
+          setFicheiros(data.ficheiros || []);
+          setSelecionados([]);
+        })
+        .catch(() => {
+          setMensagem('❌ Erro ao carregar os ficheiros.');
+        });
+    } else {
+      setFicheiros([]);
+      setSelecionados([]);
+    }
+  }, [cadeira]);
+
+  const handleCheckboxChange = (ficheiro) => {
+    setSelecionados((prev) =>
+      prev.includes(ficheiro)
+        ? prev.filter((f) => f !== ficheiro)
+        : [...prev, ficheiro]
+    );
+  };
+
+  const confirmarFicheiros = () => {
+    if (!cadeira || selecionados.length === 0) {
+      setMensagem('⚠️ Seleciona uma cadeira e pelo menos um ficheiro.');
       return;
     }
 
-    const formData = new FormData();
-    formData.append('file', ficheiro);
-    formData.append('cadeira', cadeiraSelecionada);
-
-    try {
-      const response = await fetch('http://127.0.0.1:8000/upload', {
-        method: 'POST',
-        body: formData
+    fetch('http://localhost:8000/confirmar_ficheiros', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cadeira: cadeira, ficheiros: selecionados }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.mensagem === "novos") {
+          setMensagem('✅ Ficheiros confirmados com sucesso!');
+        } else {
+          setMensagem('⚠️ Estes ficheiros já tinham sido enviados antes.');
+        }
+      })
+      .catch(() => {
+        setMensagem('❌ Erro ao confirmar ficheiros.');
       });
-
-      const contentType = response.headers.get("content-type");
-      const data = contentType && contentType.includes("application/json") ? await response.json() : {};
-
-      if (!response.ok) {
-        mostrarMensagem(`❌ Erro ao enviar: ${data.erro || 'Erro inesperado.'}`, 'erro');
-        return;
-      }
-
-      // Atualiza o localStorage
-      const ficheirosPorCadeira = JSON.parse(localStorage.getItem('ficheirosPorCadeira')) || {};
-      ficheirosPorCadeira[cadeiraSelecionada] = ficheirosPorCadeira[cadeiraSelecionada] || [];
-      ficheirosPorCadeira[cadeiraSelecionada].push(ficheiro.name);
-      localStorage.setItem('ficheirosPorCadeira', JSON.stringify(ficheirosPorCadeira));
-
-      mostrarMensagem(`✅ ${data.mensagem}`, 'sucesso');
-      setFicheiro(null);
-    } catch (error) {
-      console.error('Erro ao enviar ficheiro:', error);
-      mostrarMensagem('❌ Erro ao enviar o ficheiro!', 'erro');
-    }
   };
-
-  const mostrarMensagem = (mensagem, tipo) => {
-    setMensagemStatus({ texto: mensagem, tipo });
-    setTimeout(() => setMensagemStatus(null), 5000);
-  };
-
-  if (!docente) return null;
 
   return (
     <div style={{ padding: '40px 60px', fontFamily: 'Arial' }}>
-      <h2 style={{ fontSize: '28px', marginBottom: '30px' }}>📤 Upload de Ficheiros</h2>
-
-      {mensagemStatus && (
-        <div style={{
-          marginBottom: 20,
-          padding: 15,
-          backgroundColor: mensagemStatus.tipo === 'sucesso' ? '#d4edda' : '#f8d7da',
-          color: mensagemStatus.tipo === 'sucesso' ? '#155724' : '#721c24',
-          border: `1px solid ${mensagemStatus.tipo === 'sucesso' ? '#c3e6cb' : '#f5c6cb'}`,
-          borderRadius: 5
-        }}>
-          {mensagemStatus.texto}
-        </div>
-      )}
+      <h2 style={{ fontSize: '28px', marginBottom: '30px' }}>📁 Confirmar Documentos</h2>
 
       <div style={{ display: 'flex', justifyContent: 'center' }}>
         <div style={{
@@ -87,13 +84,11 @@ function UploadFicheiros() {
           width: '700px',
           boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)'
         }}>
-          <p style={{ marginBottom: 20 }}><strong>Docente:</strong> {docente.nome}</p>
-
           <div style={{ marginBottom: 25 }}>
             <label style={{ display: 'block', marginBottom: 8 }}>Selecionar Cadeira:</label>
             <select
-              value={cadeiraSelecionada}
-              onChange={(e) => setCadeiraSelecionada(e.target.value)}
+              value={cadeira}
+              onChange={(e) => setCadeira(e.target.value)}
               style={{
                 padding: 10,
                 width: '100%',
@@ -103,41 +98,62 @@ function UploadFicheiros() {
               }}
             >
               <option value="">-- Escolhe uma cadeira --</option>
-              {docente.cadeiras.map((c, idx) => (
+              {listaCadeiras.map((c, idx) => (
                 <option key={idx} value={c}>{c}</option>
               ))}
             </select>
           </div>
 
-          <div style={{ marginBottom: 25 }}>
-            <label style={{ display: 'block', marginBottom: 8 }}>Selecionar Ficheiro:</label>
-            <input
-              type="file"
-              onChange={(e) => setFicheiro(e.target.files[0])}
-              style={{ fontSize: '15px' }}
-            />
-          </div>
+          {cadeira && (
+            <>
+              <h3 style={{ marginBottom: 15 }}>Ficheiros disponíveis para <em>{cadeira}</em>:</h3>
 
-          <div style={{ textAlign: 'center' }}>
-            <button
-              onClick={handleUpload}
-              style={{
-                background: 'royalblue',
-                color: 'white',
-                padding: '12px 28px',
-                border: 'none',
-                borderRadius: 6,
-                cursor: 'pointer',
-                fontSize: '16px'
-              }}
-            >
-              Enviar Ficheiros
-            </button>
-          </div>
+              {ficheiros.length === 0 ? (
+                <p style={{ color: '#888', fontStyle: 'italic' }}>Nenhum ficheiro disponível.</p>
+              ) : (
+                <ul style={{ listStyle: 'none', padding: 0, marginBottom: 20 }}>
+                  {ficheiros.map((ficheiro, index) => (
+                    <li key={index} style={{ marginBottom: 8 }}>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={selecionados.includes(ficheiro)}
+                          onChange={() => handleCheckboxChange(ficheiro)}
+                          style={{ marginRight: 8 }}
+                        />
+                        {ficheiro}
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <div style={{ textAlign: 'center' }}>
+                <button
+                  onClick={confirmarFicheiros}
+                  style={{
+                    background: 'royalblue',
+                    color: 'white',
+                    padding: '12px 28px',
+                    border: 'none',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                    fontSize: '16px'
+                  }}
+                >
+                  Confirmar Ficheiros
+                </button>
+              </div>
+            </>
+          )}
+
+          {mensagem && (
+            <p style={{ marginTop: 20, fontWeight: 'bold', textAlign: 'center' }}>{mensagem}</p>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-export default UploadFicheiros;
+export default UploadPage;
