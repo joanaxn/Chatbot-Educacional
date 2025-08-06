@@ -18,8 +18,12 @@ function StudentChatPage() {
     } else {
       setAluno(alunoLogado);
       setCadeira(cadeiraSelecionada);
+    }
+  }, [navigate]);
 
-      fetch(`http://localhost:8000/ficheiros_confirmados?cadeira=${cadeiraSelecionada}`)
+  useEffect(() => {
+    if (cadeira) {
+      fetch(`http://localhost:8000/ficheiros_confirmados?cadeira=${cadeira}`)
         .then((res) => res.json())
         .then((data) => {
           setFicheiros(data.ficheiros || []);
@@ -29,7 +33,7 @@ function StudentChatPage() {
           setFicheiros([]);
         });
     }
-  }, [navigate]);
+  }, [cadeira]);
 
   const enviarMensagem = async (msg) => {
     if (msg.trim() === '') return;
@@ -38,14 +42,22 @@ function StudentChatPage() {
     setConversa(prev => [...prev, { texto: "⏳ A responder...", autor: 'bot' }]);
 
     try {
-      const response = await fetch(`http://127.0.0.1:8000/perguntar?pergunta=${encodeURIComponent(msg)}&cadeira=${encodeURIComponent(cadeira)}`, {
-        method: 'POST'
+      const response = await fetch('http://127.0.0.1:8000/perguntar', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          pergunta: msg,
+          cadeira: cadeira
+        })
       });
 
       const data = await response.json();
 
       setConversa(prev => prev.filter(m => m.texto !== "⏳ A responder..."));
       setConversa(prev => [...prev, { texto: data.resposta, autor: 'bot' }]);
+
     } catch (error) {
       console.error('Erro ao contactar o backend:', error);
       setConversa(prev => prev.filter(m => m.texto !== "⏳ A responder..."));
@@ -155,11 +167,19 @@ function StudentChatPage() {
         {ficheiros.length > 0 ? (
           <ul style={{ paddingLeft: 20 }}>
             {ficheiros.map((f, i) => (
-              <li key={i} style={{ marginBottom: 8 }}>{f}</li>
+              <li key={i} style={{ marginBottom: 8 }}>
+                <a
+                  href={f.caminho}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {f.nome}
+                </a>
+              </li>
             ))}
           </ul>
         ) : (
-          <p>Nenhum ficheiro disponível.</p>
+          <p>Não há ficheiros disponíveis.</p>
         )}
       </div>
     </div>

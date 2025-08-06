@@ -61,10 +61,12 @@ function UploadPage() {
     })
       .then((res) => res.json())
       .then((data) => {
-        if (data.mensagem === "novos") {
-          setMensagem('✅ Ficheiros confirmados com sucesso!');
-        } else {
+        if (data.mensagem === "novos" && data.ficheiros.length > 0) {
+          setMensagem(`✅ ${data.ficheiros.length} ficheiro(s) confirmado(s) com sucesso!`);
+        } else if (data.mensagem === "repetidos") {
           setMensagem('⚠️ Estes ficheiros já tinham sido enviados antes.');
+        } else {
+          setMensagem('⚠️ Nenhum ficheiro foi confirmado.');
         }
       })
       .catch(() => {

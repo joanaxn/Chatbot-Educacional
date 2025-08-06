@@ -8,86 +8,74 @@ from typing import List
 from pathlib import Path
 from pydantic import BaseModel
 import json
-import threading
 from fastapi import Body
-import time
+import threading
+from shutil import copyfile
+import mysql.connector
+from fastapi.responses import JSONResponse
+from langchain_community.vectorstores import Chroma
+from langchain_community.embeddings import OllamaEmbeddings
+from langchain_ollama import OllamaLLM
+
 from langchain.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
-from langchain_community.document_loaders import PyMuPDFLoader, Docx2txtLoader, UnstructuredPowerPointLoader
+from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import HuggingFaceBgeEmbeddings
-from fastapi import HTTPException
-from fastapi.encoders import jsonable_encoder
-from fastapi.testclient import TestClient
-from fastapi import FastAPI, Query
-from fastapi.responses import JSONResponse
-from langchain_community.embeddings import OllamaEmbeddings
-from langchain_community.vectorstores import Chroma
 from langchain_community.llms import Ollama
-from langchain.chains import RetrievalQA
+from datetime import datetime
+
+
+from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader
+from langchain_community.vectorstores import Chroma
+from langchain_ollama.embeddings import OllamaEmbeddings
+import glob
+
+
+
+from langchain.prompts import PromptTemplate
+
+from fastapi import APIRouter
+from datetime import datetime
+
+
+
 import os
+
+from db_mysql import ligar_bd
+from datetime import datetime
 
 
 
 app = FastAPI()
 
-client = TestClient(app)
-
-DATA_DIR = "data"
-DB_DIR = "db"
 
 
+# Caminhos
 DOCENTES_PATH = "docentes.json"
 ALUNOS_PATH = "alunos.json"
+BASE_DIR = "C:/xampp/htdocs/materiais"
+DATA_DIR = "data"
 
-# Permitir chamadas do frontend (CORS)
+# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Troca para o IP/domínio do frontend no futuro
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Diretório onde vamos guardar os ficheiros
-BASE_DIR = "C:/xampp/htdocs/materiais"
-
-
-@app.post("/receber_ficheiro")
-async def receber_ficheiro(file: UploadFile, cadeira: str = Form(...)):
-    try:
-        # Criar pasta da cadeira se não existir
-        pasta_cadeira = os.path.join(BASE_DIR, cadeira)
-        os.makedirs(pasta_cadeira, exist_ok=True)
-
-        # Caminho do ficheiro no servidor
-        caminho_ficheiro = os.path.join(pasta_cadeira, file.filename)
-
-        # Guardar ficheiro
-        with open(caminho_ficheiro, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-
-        return {"mensagem": f"Ficheiro '{file.filename}' guardado com sucesso em '{cadeira}'."}
-    except Exception as e:
-        return JSONResponse(content={"erro": str(e)}, status_code=500)
 
 
 
 
 @app.get("/listar_ficheiros")
 def listar_ficheiros(cadeira: str = Query(...)):
-    cadeira = cadeira.strip()  # REMOVE espaços e \n
-
-    pasta = Path(f"{BASE_DIR}/{cadeira}")
-
-
+    cadeira = cadeira.strip()
+    pasta = Path(os.path.join(BASE_DIR, cadeira))
     if not pasta.exists() or not pasta.is_dir():
         return {"ficheiros": []}
-
     ficheiros = [f.name for f in pasta.iterdir() if f.is_file()]
     return {"ficheiros": ficheiros}
-
 
 
 
@@ -110,7 +98,6 @@ class ConfirmacaoFicheiros(BaseModel):
     cadeira: str
     ficheiros: list
 
-CONFIRMADOS_PATH = "confirmados.json"
 
 
 
@@ -120,52 +107,49 @@ CONFIRMADOS_PATH = "confirmados.json"
 
 
 
-
-
-#----------------EMBEDDINGS-----------------------
-@app.post("/gerar_embeddings")
-def gerar_embeddings(cadeira: str = Body(..., embed=True)):
+#----------------EMBEDDINGS-------------------
+def gerar_embeddings(cadeira):
     try:
-        pasta_cadeira = os.path.join(DATA_DIR, cadeira)
-        if not os.path.exists(pasta_cadeira):
-            raise HTTPException(status_code=404, detail="Pasta da cadeira não encontrada.")
+        pasta_ficheiros = os.path.join("data", cadeira)
+        pasta_db = os.path.join("db", cadeira)
+        os.makedirs(pasta_db, exist_ok=True)
 
-        docs = []
-        for filename in os.listdir(pasta_cadeira):
-            path = os.path.join(pasta_cadeira, filename)
+        documentos = []
 
-            if filename.endswith(".pdf"):
-                loader = PyMuPDFLoader(path)
-            elif filename.endswith(".docx"):
-                loader = Docx2txtLoader(path)
-            elif filename.endswith(".pptx"):
-                loader = UnstructuredPowerPointLoader(path)
-            else:
-                continue  # Ignora formatos desconhecidos
+        # Carregar todos os .pdf e .docx da cadeira
+        ficheiros_pdf = glob.glob(os.path.join(pasta_ficheiros, "*.pdf"))
+        ficheiros_docx = glob.glob(os.path.join(pasta_ficheiros, "*.docx"))
 
-            docs.extend(loader.load())
+        for path in ficheiros_pdf:
+            loader = PyPDFLoader(path)
+            documentos.extend(loader.load())
 
-        if not docs:
-            raise HTTPException(status_code=400, detail="Nenhum documento válido encontrado.")
+        for path in ficheiros_docx:
+            loader = Docx2txtLoader(path)
+            documentos.extend(loader.load())
 
-        # Divide o texto em pedaços
-        splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
-        chunks = splitter.split_documents(docs)
+        if not documentos:
+            print("⚠️ Nenhum documento encontrado para gerar embeddings.")
+            return
 
-        # Cria embeddings
+        # Divide o texto
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1000,
+            chunk_overlap=100
+        )
+        docs_divididos = splitter.split_documents(documentos)
+
+        # Gerar e guardar embeddings em bd/{CADEIRA}
         embeddings = OllamaEmbeddings(model="nomic-embed-text")
+        db = Chroma.from_documents(documents=docs_divididos, embedding=embeddings, persist_directory=pasta_db)
+        db.persist()
 
-        # Cria pasta se não existir
-        db_path = os.path.join(DB_DIR, cadeira)
-        os.makedirs(db_path, exist_ok=True)
-
-        # Guarda os embeddings
-        Chroma.from_documents(chunks, embeddings, persist_directory=db_path)
-
-        return {"mensagem": f"Embeddings gerados para a cadeira '{cadeira}' com sucesso."}
+        print(f"✅ Embeddings gerados com sucesso para a cadeira: {cadeira}")
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"❌ Erro ao gerar embeddings: {e}")
+
+#-----------------------------------------------------
 
 
 
@@ -173,73 +157,81 @@ def gerar_embeddings(cadeira: str = Body(..., embed=True)):
 
 
 
-#para não travar a resposta do servidor, gera os embeddings em background
-def gerar_embeddings_background(cadeira):
-    try:
-        client.post("http://localhost:8000/gerar_embeddings", json={"cadeira": cadeira})
-    except Exception as e:
-        print(f"⚠️ Erro ao gerar embeddings: {e}")
 
 
-#mudado 3.08
+#mandar para a base de dados e para a pasta data/
 @app.post("/confirmar_ficheiros")
-def confirmar_ficheiros(data: dict = Body(...)):
-    cadeira = data.get("cadeira", "").strip()
-    ficheiros = data.get("ficheiros")
+def confirmar_ficheiros(dados: ConfirmacaoFicheiros):
+    try:
+        cadeira = dados.cadeira.strip()
+        ficheiros = dados.ficheiros
 
-    if not cadeira or not ficheiros:
-        return {"mensagem": "erro", "detalhe": "Cadeira ou ficheiros em falta"}
+        pasta_origem = os.path.join(BASE_DIR, cadeira)
+        pasta_destino = os.path.join("data", cadeira)
+        os.makedirs(pasta_destino, exist_ok=True)
 
-    confirmados_path = "confirmados.json"
+        conn = ligar_bd()
+        cursor = conn.cursor()
 
-    if os.path.exists(confirmados_path):
-        with open(confirmados_path, "r", encoding="utf-8") as f:
-            confirmados = json.load(f)
-    else:
-        confirmados = {}
+        novos_confirmados = []
 
-    confirmados_da_cadeira = set(confirmados.get(cadeira, []))
-    novos = [f for f in ficheiros if f not in confirmados_da_cadeira]
+        for ficheiro in ficheiros:
+            cursor.execute("""
+                SELECT COUNT(*) FROM ficheiros_confirmados
+                WHERE nome = %s AND cadeira = %s
+            """, (ficheiro, cadeira))
+            ja_existe = cursor.fetchone()[0] > 0
 
-    if novos:
-        confirmados_da_cadeira.update(novos)
-        confirmados[cadeira] = list(confirmados_da_cadeira)
+            if not ja_existe:
+                origem = os.path.join(pasta_origem, ficheiro)
+                destino_fisico = os.path.join(pasta_destino, ficheiro)
 
-        with open(confirmados_path, "w", encoding="utf-8") as f:
-            json.dump(confirmados, f, indent=2, ensure_ascii=False)
+                # Este é o caminho que o frontend pode abrir no browser
+                caminho_web = f"http://localhost/materiais/{cadeira}/{ficheiro}"
 
-        for ficheiro in novos:
-            origem = f"C:/xampp/htdocs/materiais/{cadeira}/{ficheiro}"
-            destino = f"data/{cadeira}/{ficheiro}"
-            os.makedirs(os.path.dirname(destino), exist_ok=True)
-            if not os.path.exists(destino):
-                shutil.copy(origem, destino)
+                shutil.copyfile(origem, destino_fisico)
 
-        # ✅ Gera embeddings em background
-        threading.Thread(target=gerar_embeddings_background, args=(cadeira,)).start()
+                cursor.execute("""
+                    INSERT INTO ficheiros_confirmados (nome, cadeira, caminho)
+                    VALUES (%s, %s, %s)
+                """, (ficheiro, cadeira, caminho_web))
 
-        return {"mensagem": "novos"}  # devolve logo!
+                novos_confirmados.append(ficheiro)
 
-    else:
-        return {"mensagem": "repetidos"}
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        # ✅ GERAR EMBEDDINGS AUTOMATICAMENTE
+        if novos_confirmados:
+            gerar_embeddings(cadeira)
+
+        if novos_confirmados:
+            return {"mensagem": "novos", "ficheiros": novos_confirmados}
+        else:
+            return {"mensagem": "repetidos", "ficheiros": []}
+
+    except Exception as e:
+        print("❌ ERRO:", e)
+        return JSONResponse(content={"erro": str(e)}, status_code=500)
 
 
 
 
 
 
-
-
-
-
+#mandar para data/ e para a base de dados
 @app.get("/ficheiros_confirmados")
 def ficheiros_confirmados(cadeira: str = Query(...)):
     try:
-        if os.path.exists(CONFIRMADOS_PATH):
-            with open(CONFIRMADOS_PATH, "r") as f:
-                confirmados = json.load(f)
-            return {"ficheiros": confirmados.get(cadeira.strip(), [])}
-        return {"ficheiros": []}
+        conn = ligar_bd()
+        cursor = conn.cursor()
+        cursor.execute("SELECT nome, caminho FROM ficheiros_confirmados WHERE cadeira = %s", (cadeira.strip(),))
+        resultados = cursor.fetchall()
+        ficheiros = [{"nome": row[0], "caminho": row[1]} for row in resultados]
+        cursor.close()
+        conn.close()
+        return {"ficheiros": ficheiros}
     except Exception as e:
         return JSONResponse(content={"erro": str(e)}, status_code=500)
 
@@ -248,6 +240,7 @@ def ficheiros_confirmados(cadeira: str = Query(...)):
 
 
 
+#------------------ LOGIN -------------------
 @app.post("/login_docente")
 def login_docente(email: str = Body(...), password: str = Body(...)):
     try:
@@ -275,7 +268,6 @@ def login_docente(email: str = Body(...), password: str = Body(...)):
 
 
 
-
 @app.post("/login_estudante")
 def login_estudante(email: str = Body(...), password: str = Body(...)):
     try:
@@ -298,6 +290,7 @@ def login_estudante(email: str = Body(...), password: str = Body(...)):
     except Exception as e:
         return JSONResponse(content={"erro": str(e)}, status_code=500)
     
+#------------------------------------------------------
 
 
 
@@ -305,11 +298,7 @@ def login_estudante(email: str = Body(...), password: str = Body(...)):
 
 
 
-
-
-
-
-
+#listar na dropdown as cadeiras que o docente leciona
 @app.get("/listar_cadeiras_docente")
 def listar_cadeiras_docente(email: str = Query(...)):
     try:
@@ -343,65 +332,52 @@ def listar_cadeiras_docente(email: str = Query(...)):
 
 
 
+#------------------ CHAT -------------------
 
-
-
-
-
-
-
-
-
-
-
-#--------------------perguntar------------------------
 @app.post("/perguntar")
-def perguntar(pergunta: str = Query(...), cadeira: str = Query(...)):
+def perguntar(pergunta: str = Body(...), cadeira: str = Body(...)):
     try:
-        db_path = os.path.join("db", cadeira)
-        if not os.path.exists(db_path):
-            return JSONResponse(content={"erro": f"Não existem embeddings para a cadeira {cadeira}"}, status_code=404)
+        # Caminho dos embeddings da cadeira
+        pasta_db = os.path.join("db", cadeira)
 
-        # Carregar os embeddings e a base de dados
+        # Verifica se existe base de embeddings
+        if not os.path.exists(pasta_db):
+            return {"resposta": "❌ Ainda não existem embeddings para esta cadeira."}
+
+        # Carregar os embeddings
         embeddings = OllamaEmbeddings(model="nomic-embed-text")
-        db = Chroma(persist_directory=db_path, embedding_function=embeddings)
-        retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": 3})
+        db = Chroma(persist_directory=pasta_db, embedding_function=embeddings)
 
-        # Modelo local
-        llm = Ollama(model="gemma:2b-instruct")
+        # Inicializar o modelo (gemma)
+        modelo = OllamaLLM(model="gemma:2b-instruct")
 
-        # PROMPT reforçado que impede o modelo de inventar
-        prompt_pt = PromptTemplate(
-            input_variables=["context", "question"],
-            template="""
-Usa apenas o contexto fornecido abaixo para responder à pergunta.
-Se não encontrares a resposta no contexto, responde: "Não tenho informação para isso."
-Nunca inventes. Responde sempre em português.
+        # Prompt com 'context' e 'question'
+        prompt_template = """
+Usa apenas a informação abaixo para responder à pergunta.
+Responde em português de forma clara e objetiva.
+Se não houver informação suficiente, responde com: "Não tenho informações suficientes para responder."
 
-Contexto:
+Informação dos documentos:
 {context}
 
 Pergunta: {question}
-Resposta:
-""".strip()
+"""
+        prompt = PromptTemplate(
+            input_variables=["context", "question"],
+            template=prompt_template
         )
 
-        # Construção do QA chain
-        qa = RetrievalQA.from_chain_type(
-            llm=llm,
-            retriever=retriever,
-            chain_type="stuff",
+        # Construir cadeia de QA
+        qa_chain = RetrievalQA.from_chain_type(
+            llm=modelo,
+            retriever=db.as_retriever(),
             return_source_documents=False,
-            chain_type_kwargs={"prompt": prompt_pt}
+            chain_type_kwargs={"prompt": prompt}
         )
 
-        resposta = qa.run(pergunta)
-
-        # Validação da resposta
-        if not resposta.strip() or "não tenho informação" in resposta.lower():
-            return {"resposta": "Não tenho informação para isso."}
-
-        return {"resposta": resposta}
+        resultado = qa_chain.run(pergunta)
+        return {"resposta": resultado}
 
     except Exception as e:
+        print("❌ ERRO NO /perguntar:", e)
         return JSONResponse(content={"erro": str(e)}, status_code=500)
