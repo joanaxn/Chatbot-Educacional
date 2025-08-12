@@ -1,54 +1,70 @@
-from fastapi import FastAPI, UploadFile, Form
+from fastapi import FastAPI, Body, Query, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+
+# Stdlib
 import os
+import glob
 import shutil
-from fastapi import Query
-from typing import List
-from pathlib import Path
-from pydantic import BaseModel
-import json
-from fastapi import Body
 import threading
-from shutil import copyfile
+from pathlib import Path
+from datetime import datetime
+from typing import List, Optional
+
+
+
+import zipfile
+
+
+
+
+# DB / Network
 import mysql.connector
-from fastapi.responses import JSONResponse
+import requests
+from ftplib import FTP, error_perm
+
+# LangChain (usar sempre a versão community)
+from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader
 from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import OllamaEmbeddings
-from langchain_ollama import OllamaLLM
-
+from langchain_community.llms import Ollama
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
-from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.llms import Ollama
-from datetime import datetime
 
-
-from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader
-from langchain_community.vectorstores import Chroma
-from langchain_ollama.embeddings import OllamaEmbeddings
-import glob
-
-
-
-from langchain.prompts import PromptTemplate
-
-from fastapi import APIRouter
-from datetime import datetime
-
-
-
-import os
-
+# Projeto
+from pydantic import BaseModel
 from db_mysql import ligar_bd
-from datetime import datetime
+
+import json
+from urllib.parse import quote
+
+# --- slug igual ao PHP (preg_replace sem 'u'): cada byte fora de A-Za-z0-9_- vira "_"
+def cadeira_slug_php_like(nome: str) -> str:
+    s = (nome or '').strip()
+    b = s.encode('utf-8', 'ignore')  # bytes como o PHP vê
+    out = []
+    for ch in b:  # ch é um byte (0..255)
+        if (48 <= ch <= 57) or (65 <= ch <= 90) or (97 <= ch <= 122) or ch in (95, 45):  # 0-9 A-Z a-z _ -
+            out.append(chr(ch))
+        else:
+            out.append('_')
+    return ''.join(out)
+
 
 
 
 app = FastAPI()
 
 
+REMOTE_BASE_URL = "https://chatbotestagio.page.gd"
+print("🔍 REMOTE_BASE_URL =", REMOTE_BASE_URL)
+
+
+# mete isto por variáveis de ambiente ou direto enquanto testas
+FTP_HOST = os.getenv("FTP_HOST", "ftpupload.net")          # InfinityFree
+FTP_USER = os.getenv("FTP_USER", "if0_39670755")      # ex.: if0_39670755
+FTP_PASS = os.getenv("FTP_PASS", "Estagio2004")      # a do painel
 
 # Caminhos
 DOCENTES_PATH = "docentes.json"
@@ -65,22 +81,157 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+#-----------------
+def is_valid_pdf(path: str) -> bool:
+    try:
+        with open(path, "rb") as f:
+            return f.read(5) == b"%PDF-"
+    except:
+        return False
+
+def is_valid_docx(path: str) -> bool:
+    try:
+        return zipfile.is_zipfile(path)
+    except:
+        return False
+    
+
+#-----------------
 
 
 
+
+
+
+#-------------EMBEDDINGS----------------
+def gerar_embeddings_para_ficheiros(cadeira: str, ficheiros: list):
+    """
+    Lê APENAS os ficheiros dados em data/{cadeira}/{ficheiro} (.pdf/.docx),
+    valida, cria chunks e adiciona os embeddings na base Chroma em db/{cadeira}.
+    """
+    try:
+        pasta_ficheiros = os.path.join("data", cadeira)
+        pasta_db = os.path.join("db", cadeira)
+        os.makedirs(pasta_db, exist_ok=True)
+
+        documentos = []
+        for nome in ficheiros:
+            caminho = os.path.join(pasta_ficheiros, nome)
+            if not os.path.isfile(caminho):
+                print(f"⚠️ Não encontrado para embeddings: {caminho}")
+                continue
+
+            ext = os.path.splitext(nome)[1].lower()
+
+            # valida conteúdo antes de carregar
+            if ext == ".pdf" and not is_valid_pdf(caminho):
+                print(f"⚠️ PDF inválido (skip): {nome}")
+                continue
+            if ext == ".docx" and not is_valid_docx(caminho):
+                print(f"⚠️ DOCX inválido (skip): {nome}")
+                continue
+
+            try:
+                if ext == ".pdf":
+                    loader = PyPDFLoader(caminho)
+                elif ext == ".docx":
+                    loader = Docx2txtLoader(caminho)
+                else:
+                    print(f"ℹ️ Extensão não suportada (skip): {nome}")
+                    continue
+                documentos.extend(loader.load())
+            except Exception as e:
+                print(f"⚠️ Erro a ler {nome} p/ embeddings: {e}")
+
+        if not documentos:
+            print("ℹ️ Sem documentos válidos para gerar embeddings (nesta chamada).")
+            return
+
+        splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=120)
+        docs_divididos = splitter.split_documents(documentos)
+
+        embeddings = OllamaEmbeddings(model="nomic-embed-text")
+        db = Chroma(persist_directory=pasta_db, embedding_function=embeddings)
+        db.add_documents(docs_divididos)  # adiciona aos existentes
+        db.persist()
+
+        print(f"✅ Embeddings atualizados em db/{cadeira} (chunks: {len(docs_divididos)})")
+    except Exception as e:
+        print(f"❌ Erro ao gerar embeddings p/ {cadeira}: {e}")
+
+
+
+
+
+
+
+
+
+
+@app.get("/listar_ficheiros_remotos")
+def listar_ficheiros_remotos(cadeira: str = Query(...)):
+    cadeira = (cadeira or '').strip()
+    if not cadeira:
+        return {"cadeira": "", "ficheiros": []}
+
+    slug = cadeira_slug_php_like(cadeira)                      # <--- AQUI
+    base = f"/htdocs/materiais/{slug}"                         # <--- E AQUI
+
+    nomes = []
+    try:
+        with FTP(FTP_HOST, timeout=25) as ftp:
+            ftp.set_pasv(True)
+            ftp.login(FTP_USER, FTP_PASS)
+            ftp.cwd(base)
+            for name in ftp.nlst():
+                if name in ('.', '..'):
+                    continue
+                try:
+                    ftp.size(name)
+                    nomes.append(name)
+                except error_perm:
+                    pass
+        nomes.sort()
+        return {"cadeira": cadeira, "ficheiros": nomes}
+    except Exception as e:
+        print("⚠️ FTP erro:", e)
+        return {"cadeira": cadeira, "ficheiros": []} 
+
+
+
+
+#posso apagar acho eu
 @app.get("/listar_ficheiros")
-def listar_ficheiros(cadeira: str = Query(...)):
-    cadeira = cadeira.strip()
-    pasta = Path(os.path.join(BASE_DIR, cadeira))
-    if not pasta.exists() or not pasta.is_dir():
-        return {"ficheiros": []}
-    ficheiros = [f.name for f in pasta.iterdir() if f.is_file()]
-    return {"ficheiros": ficheiros}
+async def listar_ficheiros(cadeira: str):
+    import requests
+    import os
+
+    # URL do PHP no InfinityFree que lista os ficheiros
+    remote_url = f"https://TEU_DOMINIO.infinityfreeapp.com/list.php?cadeira={cadeira}"
+
+    try:
+        print(f"📡 Tentando listar ficheiros remotos para cadeira: {cadeira}")
+        resp = requests.get(remote_url, timeout=5)
+
+        if resp.status_code == 200:
+            data = resp.json()  # espera JSON do PHP
+            return {"cadeira": cadeira, "ficheiros": data.get("ficheiros", [])}
+        else:
+            print(f"⚠️ Erro remoto: Status {resp.status_code}")
+    except Exception as e:
+        print(f"⚠️ Falha ao buscar ficheiros remotos: {e}")
+
+    # Se não conseguir remoto, devolve lista local (apenas debug)
+    local_path = os.path.join("materiais", cadeira)
+    if os.path.exists(local_path):
+        return {"cadeira": cadeira, "ficheiros": os.listdir(local_path)}
+    else:
+        return {"cadeira": cadeira, "ficheiros": []}
 
 
 
 
-
+#posso apagar acho eu
 @app.get("/listar_cadeiras")
 def listar_cadeiras():
     try:
@@ -107,276 +258,409 @@ class ConfirmacaoFicheiros(BaseModel):
 
 
 
-#----------------EMBEDDINGS-------------------
-def gerar_embeddings(cadeira):
-    try:
-        pasta_ficheiros = os.path.join("data", cadeira)
-        pasta_db = os.path.join("db", cadeira)
-        os.makedirs(pasta_db, exist_ok=True)
-
-        documentos = []
-
-        # Carregar todos os .pdf e .docx da cadeira
-        ficheiros_pdf = glob.glob(os.path.join(pasta_ficheiros, "*.pdf"))
-        ficheiros_docx = glob.glob(os.path.join(pasta_ficheiros, "*.docx"))
-
-        for path in ficheiros_pdf:
-            loader = PyPDFLoader(path)
-            documentos.extend(loader.load())
-
-        for path in ficheiros_docx:
-            loader = Docx2txtLoader(path)
-            documentos.extend(loader.load())
-
-        if not documentos:
-            print("⚠️ Nenhum documento encontrado para gerar embeddings.")
-            return
-
-        # Divide o texto
-        splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=100
-        )
-        docs_divididos = splitter.split_documents(documentos)
-
-        # Gerar e guardar embeddings em bd/{CADEIRA}
-        embeddings = OllamaEmbeddings(model="nomic-embed-text")
-        db = Chroma.from_documents(documents=docs_divididos, embedding=embeddings, persist_directory=pasta_db)
-        db.persist()
-
-        print(f"✅ Embeddings gerados com sucesso para a cadeira: {cadeira}")
-
-    except Exception as e:
-        print(f"❌ Erro ao gerar embeddings: {e}")
-
-#-----------------------------------------------------
 
 
 
 
 
-
-
-
-
-#mandar para a base de dados e para a pasta data/
+# meter na base de dados e data/{CADEIRA} — VERSÃO FTP (sem HTML do host)
 @app.post("/confirmar_ficheiros")
 def confirmar_ficheiros(dados: ConfirmacaoFicheiros):
     try:
-        cadeira = dados.cadeira.strip()
-        ficheiros = dados.ficheiros
+        cadeira_nome = (dados.cadeira or "").strip()
+        ficheiros = dados.ficheiros or []
 
-        pasta_origem = os.path.join(BASE_DIR, cadeira)
-        pasta_destino = os.path.join("data", cadeira)
+        if not cadeira_nome:
+            return JSONResponse(content={"erro": "Cadeira inválida."}, status_code=400)
+        if not ficheiros:
+            return JSONResponse(content={"erro": "Nenhum ficheiro selecionado."}, status_code=400)
+
+        # pasta local onde guardamos os ficheiros (pode ter acentos)
+        pasta_destino = os.path.join("data", cadeira_nome)
         os.makedirs(pasta_destino, exist_ok=True)
+
+        # slug da pasta remota (igual ao PHP do upload)
+        slug = cadeira_slug_php_like(cadeira_nome)
 
         conn = ligar_bd()
         cursor = conn.cursor()
 
-        novos_confirmados = []
+        novos_confirmados, repetidos, falhados = [], [], []
+        headers = {"User-Agent": "Mozilla/5.0 (ChatbotUPT)", "Referer": REMOTE_BASE_URL}
 
-        for ficheiro in ficheiros:
-            cursor.execute("""
-                SELECT COUNT(*) FROM ficheiros_confirmados
-                WHERE nome = %s AND cadeira = %s
-            """, (ficheiro, cadeira))
-            ja_existe = cursor.fetchone()[0] > 0
+        for nome in ficheiros:
+            nome = (nome or "").strip()
+            if not nome:
+                continue
 
-            if not ja_existe:
-                origem = os.path.join(pasta_origem, ficheiro)
-                destino_fisico = os.path.join(pasta_destino, ficheiro)
+            # já existe na BD?
+            cursor.execute(
+                "SELECT COUNT(*) FROM ficheiros_confirmados WHERE nome=%s AND cadeira=%s",
+                (nome, cadeira_nome),
+            )
+            if cursor.fetchone()[0] > 0:
+                repetidos.append(nome)
+                continue
 
-                # Este é o caminho que o frontend pode abrir no browser
-                caminho_web = f"http://localhost/materiais/{cadeira}/{ficheiro}"
+            # URL pública (nome encodado)
+            nome_url = quote(nome, safe="._-()")
+            url_publica = f"{REMOTE_BASE_URL}/materiais/{slug}/{nome_url}"
+            destino_fisico = os.path.join(pasta_destino, nome)
 
-                shutil.copyfile(origem, destino_fisico)
+            # 1) tenta HTTP
+            ok = False
+            try:
+                r = requests.get(url_publica, headers=headers, timeout=30, stream=True)
+                ct = (r.headers.get("Content-Type") or "").lower()
+                if r.status_code == 200 and "text/html" not in ct:
+                    with open(destino_fisico, "wb") as out:
+                        for chunk in r.iter_content(1024 * 1024):
+                            if chunk:
+                                out.write(chunk)
+                    ok = True
+                else:
+                    print(f"⚠️ HTTP falhou: status={r.status_code} ct={ct}")
+            except Exception as e:
+                print(f"⚠️ HTTP exceção '{nome}': {e}")
 
-                cursor.execute("""
-                    INSERT INTO ficheiros_confirmados (nome, cadeira, caminho)
-                    VALUES (%s, %s, %s)
-                """, (ficheiro, cadeira, caminho_web))
+            # 2) fallback FTP se necessário
+            if not ok:
+                try:
+                    with FTP(FTP_HOST, timeout=25) as ftp:
+                        ftp.set_pasv(True)
+                        ftp.login(FTP_USER, FTP_PASS)
+                        ftp.cwd(f"/htdocs/materiais/{slug}")
+                        with open(destino_fisico, "wb") as f:
+                            ftp.retrbinary(f"RETR {nome}", f.write)
+                    ok = True
+                except Exception as e:
+                    print(f"❌ FTP falhou '{nome}': {e}")
 
-                novos_confirmados.append(ficheiro)
+            if not ok:
+                falhados.append(nome)
+                continue
+
+            # valida conteúdo base (evita ficheiro HTML/lixo)
+            ext = os.path.splitext(nome)[1].lower()
+            valido = (ext == ".pdf" and is_valid_pdf(destino_fisico)) or \
+                     (ext == ".docx" and is_valid_docx(destino_fisico))
+            if not valido:
+                print(f"⚠️ Conteúdo inválido após download: {destino_fisico}")
+                try:
+                    os.remove(destino_fisico)
+                except:
+                    pass
+                falhados.append(nome)
+                continue
+
+            # inserir na BD
+            try:
+                cursor.execute(
+                    "INSERT INTO ficheiros_confirmados (nome, cadeira, caminho) VALUES (%s, %s, %s)",
+                    (nome, cadeira_nome, url_publica),
+                )
+                novos_confirmados.append(nome)
+            except Exception as e:
+                print(f"⚠️ Falha ao inserir BD '{nome}': {e}")
+                falhados.append(nome)
 
         conn.commit()
         cursor.close()
         conn.close()
 
-        # ✅ GERAR EMBEDDINGS AUTOMATICAMENTE
+        # gera embeddings em background
         if novos_confirmados:
-            gerar_embeddings(cadeira)
+            threading.Thread(
+                target=gerar_embeddings_para_ficheiros,
+                args=(cadeira_nome, novos_confirmados),
+                daemon=True,
+            ).start()
 
-        if novos_confirmados:
-            return {"mensagem": "novos", "ficheiros": novos_confirmados}
-        else:
-            return {"mensagem": "repetidos", "ficheiros": []}
+        return {
+            "mensagem": "ok",
+            "novos": novos_confirmados,
+            "repetidos": repetidos,
+            "falhados": falhados,
+        }
 
     except Exception as e:
-        print("❌ ERRO:", e)
+        print("❌ ERRO /confirmar_ficheiros:", e)
         return JSONResponse(content={"erro": str(e)}, status_code=500)
 
 
 
 
+#-------------------REGISTO ALUNO/DOCENTE------------------
 
 
-#mandar para data/ e para a base de dados
-@app.get("/ficheiros_confirmados")
-def ficheiros_confirmados(cadeira: str = Query(...)):
+class RegistoDocente(BaseModel):
+    nome: str
+    email: str
+    password: str
+    cadeiras: Optional[List[str]] = []
+
+class RegistoAluno(BaseModel):
+    nome: str
+    email: str
+    password: str
+    cadeiras: Optional[List[str]] = []
+
+
+@app.post("/registar_docente")
+def registar_docente(dados: RegistoDocente):
     try:
         conn = ligar_bd()
         cursor = conn.cursor()
-        cursor.execute("SELECT nome, caminho FROM ficheiros_confirmados WHERE cadeira = %s", (cadeira.strip(),))
-        resultados = cursor.fetchall()
-        ficheiros = [{"nome": row[0], "caminho": row[1]} for row in resultados]
-        cursor.close()
+
+        # 1) impedir emails repetidos
+        cursor.execute("SELECT COUNT(*) FROM docentes WHERE email=%s", (dados.email,))
+        if cursor.fetchone()[0] > 0:
+            conn.close()
+            return JSONResponse(content={"erro": "Email já registado."}, status_code=409)
+
+        # 2) gravar em docentes (cadeiras em JSON string p/ manter compatibilidade)
+        cadeiras_json = json.dumps(dados.cadeiras or [], ensure_ascii=False)
+        cursor.execute("""
+            INSERT INTO docentes (nome, email, password, cadeiras)
+            VALUES (%s, %s, %s, %s)
+        """, (dados.nome, dados.email, dados.password, cadeiras_json))
+
+        # 3) também preencher a tabela de relação 'leciona' (se existir)
+        if dados.cadeiras:
+            for cad in dados.cadeiras:
+                cursor.execute("""
+                    INSERT INTO leciona (email, cadeira)
+                    SELECT %s, %s FROM DUAL
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM leciona WHERE email=%s AND cadeira=%s
+                    )
+                """, (dados.email, cad, dados.email, cad))
+
+        conn.commit()
         conn.close()
-        return {"ficheiros": ficheiros}
+        return {"mensagem": "Docente registado com sucesso."}
     except Exception as e:
+        print("❌ ERRO /registar_docente:", e)
         return JSONResponse(content={"erro": str(e)}, status_code=500)
 
 
 
 
-
-
-#------------------ LOGIN -------------------
-@app.post("/login_docente")
-def login_docente(email: str = Body(...), password: str = Body(...)):
+@app.post("/registar_aluno")
+def registar_aluno(dados: RegistoAluno):
     try:
-        if os.path.exists(DOCENTES_PATH):
-            with open(DOCENTES_PATH, "r") as f:
-                docentes = json.load(f)
-        else:
-            return JSONResponse(content={"erro": "Ficheiro de docentes não encontrado."}, status_code=500)
+        conn = ligar_bd()
+        cursor = conn.cursor()
 
-        for docente in docentes:
-            if docente["email"] == email and docente["password"] == password:
-                return {
-                    "nome": docente["nome"],
-                    "email": docente["email"],
-                    "cadeiras": docente["cadeiras"]
-                }
+        # 1) impedir emails repetidos
+        cursor.execute("SELECT COUNT(*) FROM alunos WHERE email=%s", (dados.email,))
+        if cursor.fetchone()[0] > 0:
+            conn.close()
+            return JSONResponse(content={"erro": "Email já registado."}, status_code=409)
 
-        return JSONResponse(content={"erro": "Credenciais inválidas."}, status_code=401)
+        
+        cursor.execute("""
+            INSERT INTO alunos (nome, email, password)
+            VALUES (%s, %s, %s)
+        """, (dados.nome, dados.email, dados.password))
 
+        if dados.cadeiras:
+            for cad in dados.cadeiras:
+                cursor.execute("""
+                    INSERT INTO inscricoes (email, cadeira)
+                    SELECT %s, %s FROM DUAL
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM inscricoes WHERE email=%s AND cadeira=%s
+                    )
+                """, (dados.email, cad, dados.email, cad))
+
+        conn.commit()
+        conn.close()
+        return {"mensagem": "Aluno registado com sucesso."}
     except Exception as e:
+        print("ERRO /registar_aluno:", e)
         return JSONResponse(content={"erro": str(e)}, status_code=500)
     
 
 
+# ------------------ LOGIN -------------------
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+@app.post("/login_docente")
+def login_docente(dados: LoginRequest):
+    print("📩 Pedido recebido para login_docente:", dados.email, dados.password)
+
+    conn = ligar_bd()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute(
+        "SELECT nome, email, cadeiras FROM docentes WHERE email = %s AND password = %s",
+        (dados.email, dados.password)
+    )
+    docente = cursor.fetchone()
+    conn.close()
+
+    if docente:
+        print("✅ Login docente OK:", docente["nome"])
+        return docente
+    else:
+        print("❌ Credenciais inválidas para docente:", dados.email)
+        return JSONResponse(content={"erro": "Credenciais inválidas."}, status_code=401)
 
 
 
 @app.post("/login_estudante")
-def login_estudante(email: str = Body(...), password: str = Body(...)):
-    try:
-        if os.path.exists(ALUNOS_PATH):
-            with open(ALUNOS_PATH, "r") as f:
-                alunos = json.load(f)
-        else:
-            return JSONResponse(content={"erro": "Ficheiro de alunos não encontrado."}, status_code=500)
+def login_estudante(dados: LoginRequest):
+    print("📩 Pedido recebido para login_estudante:", dados.email, dados.password)
 
-        for aluno in alunos:
-            if aluno["email"] == email and aluno["password"] == password:
-                return {
-                    "nome": aluno["nome"],
-                    "email": aluno["email"],
-                    "cadeiras": aluno["cadeiras"]
-                }
+    conn = ligar_bd()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute(
+        "SELECT nome, email FROM alunos WHERE email = %s AND password = %s",
+        (dados.email, dados.password)
+    )
+    aluno = cursor.fetchone()
 
+    if aluno:
+        cursor.execute("SELECT cadeira FROM inscricoes WHERE email = %s", (dados.email,))
+        resultado_cadeiras = cursor.fetchall()
+        aluno["cadeiras"] = [row["cadeira"] for row in resultado_cadeiras]
+        conn.close()
+        print("✅ Login estudante OK:", aluno["nome"])
+        return aluno
+    else:
+        conn.close()
+        print("❌ Credenciais inválidas para estudante:", dados.email)
         return JSONResponse(content={"erro": "Credenciais inválidas."}, status_code=401)
 
-    except Exception as e:
-        return JSONResponse(content={"erro": str(e)}, status_code=500)
     
+
+
 #------------------------------------------------------
-
-
-
 
 
 
 
 #listar na dropdown as cadeiras que o docente leciona
 @app.get("/listar_cadeiras_docente")
-def listar_cadeiras_docente(email: str = Query(...)):
+def listar_cadeiras_docente(email: str):
     try:
-        if os.path.exists(DOCENTES_PATH):
-            with open(DOCENTES_PATH, "r") as f:
-                docentes = json.load(f)
-        else:
-            return JSONResponse(content={"erro": "Ficheiro de docentes não encontrado."}, status_code=500)
+        conn = ligar_bd()
+        cursor = conn.cursor()
 
-        # Encontrar o docente pelo email
-        docente = next((d for d in docentes if d["email"] == email), None)
-        if not docente:
-            return JSONResponse(content={"erro": "Docente não encontrado."}, status_code=404)
+        cursor.execute("SELECT cadeira FROM leciona WHERE email = %s", (email,))
+        resultados = cursor.fetchall()
+        conn.close()
 
-        # Ir buscar todas as pastas do XAMPP (todas as cadeiras existentes)
-        diretorio = Path("C:/xampp/htdocs/materiais")
-        if not diretorio.exists():
-            return {"cadeiras": []}
-
-        todas_cadeiras = [f.name for f in diretorio.iterdir() if f.is_dir()]
-
-        # Filtrar apenas as que o docente leciona
-        cadeiras_docente = [c for c in todas_cadeiras if c in docente["cadeiras"]]
-
-        return {"cadeiras": cadeiras_docente}
+        cadeiras = [linha[0] for linha in resultados]
+        return {"cadeiras": cadeiras}
 
     except Exception as e:
-        return JSONResponse(content={"erro": str(e)}, status_code=500) 
+        print("❌ ERRO ao listar cadeiras:", e)
+        return JSONResponse(content={"erro": str(e)}, status_code=500)
+
     
 
+#------------------------------------------------------
+@app.get("/ficheiros_confirmados")
+def ficheiros_confirmados(cadeira: str = Query(...)):
+    try:
+        cadeira = (cadeira or "").strip()
+        if not cadeira:
+            return JSONResponse(content={"erro": "Cadeira inválida."}, status_code=400)
+
+        conn = ligar_bd()
+        cursor = conn.cursor(dictionary=True)
+
+        # Se tiveres 'data_confirmacao' na tabela, podes ordenar por ela. Aqui uso nome por segurança.
+        cursor.execute("""
+            SELECT nome, caminho
+            FROM ficheiros_confirmados
+            WHERE cadeira = %s
+            ORDER BY nome ASC
+        """, (cadeira,))
+        rows = cursor.fetchall()
+
+        cursor.close()
+        conn.close()
+
+        return {
+            "cadeira": cadeira,
+            "ficheiros": [{"nome": r["nome"], "caminho": r["caminho"]} for r in rows]
+        }
+    except Exception as e:
+        print("❌ ERRO /ficheiros_confirmados:", e)
+        return JSONResponse(content={"erro": str(e)}, status_code=500)
 
 
 
-#------------------ CHAT -------------------
+
+
+
+
+
+
+
+
+
+
+
+
+#--------------------CHATBOT----------------------
 
 @app.post("/perguntar")
-def perguntar(pergunta: str = Body(...), cadeira: str = Body(...)):
+def perguntar(pergunta: str = Body(...), cadeira: str = Body(...), email: str = Body(...)):
     try:
-        # Caminho dos embeddings da cadeira
+        # 1) valida inscrição do aluno
+        conn = mysql.connector.connect(host="localhost", user="root", password="", database="chatbot")
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1 FROM inscricoes WHERE email=%s AND cadeira=%s", (email, cadeira))
+        inscrito = cursor.fetchone()
+        conn.close()
+
+        if not inscrito:
+            return JSONResponse(content={"erro": "🚫 Não estás inscrito nesta cadeira."}, status_code=403)
+
+        # 2) garantir que existe base de embeddings
         pasta_db = os.path.join("db", cadeira)
+        if not os.path.isdir(pasta_db) or len(os.listdir(pasta_db)) == 0:
+            return {"resposta": "❌ Ainda não existem embeddings para esta cadeira (ou estão a ser gerados). Tenta de novo em instantes."}
 
-        # Verifica se existe base de embeddings
-        if not os.path.exists(pasta_db):
-            return {"resposta": "❌ Ainda não existem embeddings para esta cadeira."}
-
-        # Carregar os embeddings
-        embeddings = OllamaEmbeddings(model="nomic-embed-text")
+        # 3) carregar Chroma + modelo
+        embeddings = OllamaEmbeddings(model="nomic-embed-text")  # precisa do ollama serve + modelo puxado
         db = Chroma(persist_directory=pasta_db, embedding_function=embeddings)
 
-        # Inicializar o modelo (gemma)
-        modelo = OllamaLLM(model="gemma:2b-instruct")
+        retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": 4})
 
-        # Prompt com 'context' e 'question'
+        modelo = Ollama(model="gemma:2b-instruct")  # idem, modelo puxado no ollama
+
         prompt_template = """
-Usa apenas a informação abaixo para responder à pergunta.
-Responde em português de forma clara e objetiva.
-Se não houver informação suficiente, responde com: "Não tenho informações suficientes para responder."
+Usa APENAS o contexto abaixo para responder.
+Responde em português, claro e objetivo.
+Se o contexto não tiver a resposta, diz: "Não tenho informações suficientes para responder."
 
-Informação dos documentos:
+Contexto:
 {context}
 
 Pergunta: {question}
+Resposta:
 """
-        prompt = PromptTemplate(
-            input_variables=["context", "question"],
-            template=prompt_template
-        )
+        prompt = PromptTemplate(input_variables=["context", "question"], template=prompt_template)
 
-        # Construir cadeia de QA
         qa_chain = RetrievalQA.from_chain_type(
             llm=modelo,
-            retriever=db.as_retriever(),
+            retriever=retriever,
             return_source_documents=False,
             chain_type_kwargs={"prompt": prompt}
         )
 
-        resultado = qa_chain.run(pergunta)
-        return {"resposta": resultado}
+        resposta = qa_chain.run(pergunta)
+        if not resposta or not str(resposta).strip():
+            resposta = "Não tenho informações suficientes para responder."
+
+        return {"resposta": resposta}
 
     except Exception as e:
         print("❌ ERRO NO /perguntar:", e)

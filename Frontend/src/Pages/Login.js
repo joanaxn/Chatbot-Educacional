@@ -21,6 +21,17 @@ function LoginPage() {
       .then(data => {
         if (!data.erro) {
           setErro('');
+
+          // ✅ CORREÇÃO: garantir que "cadeiras" é um array
+          if (!Array.isArray(data.cadeiras)) {
+            try {
+              data.cadeiras = JSON.parse(data.cadeiras);
+            } catch (e) {
+              console.error("Erro ao converter cadeiras:", e);
+              data.cadeiras = [];
+            }
+          }
+
           if (tipo === 'docente') {
             localStorage.setItem('docenteLogado', JSON.stringify(data));
             navigate('/docente');

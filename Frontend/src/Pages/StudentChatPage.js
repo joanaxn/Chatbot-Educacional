@@ -9,6 +9,10 @@ function StudentChatPage() {
   const [ficheiros, setFicheiros] = useState([]);
   const navigate = useNavigate();
 
+  const API = 'http://localhost:8000';
+  const REMOTE_BASE_URL = 'https://chatbotestagio.page.gd';
+
+  // 1) Ler aluno + cadeira selecionada
   useEffect(() => {
     const alunoLogado = JSON.parse(localStorage.getItem('alunoLogado'));
     const cadeiraSelecionada = localStorage.getItem('cadeiraSelecionada');
@@ -21,47 +25,68 @@ function StudentChatPage() {
     }
   }, [navigate]);
 
+  // 2) Buscar ficheiros confirmados da cadeira (links do Infinity)
   useEffect(() => {
-    if (cadeira) {
-      fetch(`http://localhost:8000/ficheiros_confirmados?cadeira=${cadeira}`)
-        .then((res) => res.json())
-        .then((data) => {
-          setFicheiros(data.ficheiros || []);
-        })
-        .catch((err) => {
-          console.error("Erro ao buscar ficheiros confirmados:", err);
-          setFicheiros([]);
-        });
+    if (!cadeira) {
+      setFicheiros([]);
+      return;
     }
+
+    fetch(`${API}/ficheiros_confirmados?cadeira=${encodeURIComponent(cadeira)}`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        const arr = Array.isArray(data.ficheiros) ? data.ficheiros : [];
+
+        // aceita {nome, caminho} OU "ficheiro.pdf" e garante URL encodado
+        const normalizado = arr
+          .map((it) => {
+            const nome = typeof it === 'string' ? it : (it?.nome || '');
+            const caminhoDB = typeof it === 'string' ? '' : (it?.caminho || '');
+            const caminho =
+              caminhoDB && /^https?:\/\//i.test(caminhoDB)
+                ? caminhoDB
+                : `${REMOTE_BASE_URL}/materiais/${encodeURIComponent(cadeira)}/${encodeURIComponent(nome)}`;
+
+            return { nome, caminho };
+          })
+          .filter((x) => x.nome && x.caminho);
+
+        setFicheiros(normalizado);
+      })
+      .catch((err) => {
+        console.error('Erro ao buscar ficheiros confirmados:', err);
+        setFicheiros([]);
+      });
   }, [cadeira]);
 
   const enviarMensagem = async (msg) => {
     if (msg.trim() === '') return;
 
-    setConversa(prev => [...prev, { texto: msg, autor: 'aluno' }]);
-    setConversa(prev => [...prev, { texto: "⏳ A responder...", autor: 'bot' }]);
+    setConversa((prev) => [...prev, { texto: msg, autor: 'aluno' }]);
+    setConversa((prev) => [...prev, { texto: '⏳ A responder...', autor: 'bot' }]);
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/perguntar', {
+      const response = await fetch(`${API}/perguntar`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pergunta: msg,
-          cadeira: cadeira
-        })
+          cadeira: cadeira,
+          email: aluno.email, // necessário para validação de inscrição
+        }),
       });
 
       const data = await response.json();
 
-      setConversa(prev => prev.filter(m => m.texto !== "⏳ A responder..."));
-      setConversa(prev => [...prev, { texto: data.resposta, autor: 'bot' }]);
-
+      setConversa((prev) => prev.filter((m) => m.texto !== '⏳ A responder...'));
+      setConversa((prev) => [...prev, { texto: data.resposta, autor: 'bot' }]);
     } catch (error) {
       console.error('Erro ao contactar o backend:', error);
-      setConversa(prev => prev.filter(m => m.texto !== "⏳ A responder..."));
-      setConversa(prev => [...prev, { texto: '⚠️ Erro ao contactar o servidor.', autor: 'bot' }]);
+      setConversa((prev) => prev.filter((m) => m.texto !== '⏳ A responder...'));
+      setConversa((prev) => [...prev, { texto: '⚠️ Erro ao contactar o servidor.', autor: 'bot' }]);
     }
   };
 
@@ -85,26 +110,32 @@ function StudentChatPage() {
       {/* COLUNA DO CHAT */}
       <div style={{ flex: 2, padding: 20, borderRight: '1px solid #ccc' }}>
         <h2>🤖 Chatbot da cadeira: {cadeira}</h2>
-        <p><strong>Estudante:</strong> {aluno?.nome}</p>
+        <p>
+          <strong>Estudante:</strong> {aluno?.nome}
+        </p>
 
-        <div style={{
-          border: '1px solid #ccc',
-          height: '60vh',
-          padding: 10,
-          overflowY: 'auto',
-          background: '#f9f9f9',
-          borderRadius: 6,
-          marginTop: 10
-        }}>
+        <div
+          style={{
+            border: '1px solid #ccc',
+            height: '60vh',
+            padding: 10,
+            overflowY: 'auto',
+            background: '#f9f9f9',
+            borderRadius: 6,
+            marginTop: 10,
+          }}
+        >
           {conversa.map((m, i) => (
             <div key={i} style={{ textAlign: m.autor === 'aluno' ? 'right' : 'left', margin: '5px 0' }}>
-              <span style={{
-                background: m.autor === 'aluno' ? '#d0eaff' : '#eee',
-                padding: 8,
-                borderRadius: 6,
-                display: 'inline-block',
-                maxWidth: '70%'
-              }}>
+              <span
+                style={{
+                  background: m.autor === 'aluno' ? '#d0eaff' : '#eee',
+                  padding: 8,
+                  borderRadius: 6,
+                  display: 'inline-block',
+                  maxWidth: '70%',
+                }}
+              >
                 {m.texto}
               </span>
             </div>
@@ -116,7 +147,7 @@ function StudentChatPage() {
             type="text"
             placeholder="Escreve a tua mensagem..."
             value={mensagem}
-            onChange={e => setMensagem(e.target.value)}
+            onChange={(e) => setMensagem(e.target.value)}
             onKeyDown={handleKeyDown}
             style={{ flex: 1, padding: 8 }}
           />
@@ -131,7 +162,7 @@ function StudentChatPage() {
               background: 'royalblue',
               color: 'white',
               border: 'none',
-              borderRadius: 5
+              borderRadius: 5,
             }}
           >
             Enviar
@@ -147,7 +178,7 @@ function StudentChatPage() {
             border: '1px solid #ccc',
             padding: '8px 16px',
             borderRadius: 5,
-            cursor: 'pointer'
+            cursor: 'pointer',
           }}
         >
           Voltar ao Dashboard
@@ -155,24 +186,22 @@ function StudentChatPage() {
       </div>
 
       {/* COLUNA DOS FICHEIROS */}
-      <div style={{
-        flex: 1,
-        padding: 30,
-        backgroundColor: '#e0e0e0',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center'
-      }}>
+      <div
+        style={{
+          flex: 1,
+          padding: 30,
+          backgroundColor: '#e0e0e0',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+        }}
+      >
         <h3 style={{ marginBottom: 15 }}>📁 Ficheiros de {cadeira}</h3>
         {ficheiros.length > 0 ? (
           <ul style={{ paddingLeft: 20 }}>
             {ficheiros.map((f, i) => (
               <li key={i} style={{ marginBottom: 8 }}>
-                <a
-                  href={f.caminho}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
+                <a href={f.caminho} target="_blank" rel="noopener noreferrer">
                   {f.nome}
                 </a>
               </li>

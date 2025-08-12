@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { cursos } from './CursosECadeiras';
+import { registarAluno } from './api';
 
 function RegisterAluno() {
   const [form, setForm] = useState({
@@ -36,17 +37,21 @@ function RegisterAluno() {
     });
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    const alunos = JSON.parse(localStorage.getItem('alunos')) || [];
-    if (alunos.find((a) => a.email === form.email)) {
-      alert('Já existe um aluno com este email.');
-      return;
+    try {
+      // Enviar apenas o que a API espera
+      await registarAluno({
+        nome: form.nome,
+        email: form.email,
+        password: form.password,
+        cadeiras: form.cadeiras || []
+      });
+      setSucesso(true);
+      setForm({ nome: '', email: '', password: '', curso: '', cadeiras: [] });
+    } catch (err) {
+      alert(err.message || "Erro a registar aluno");
     }
-    alunos.push(form);
-    localStorage.setItem('alunos', JSON.stringify(alunos));
-    setSucesso(true);
-    setForm({ nome: '', email: '', password: '', curso: '', cadeiras: [] });
   };
 
   return (
