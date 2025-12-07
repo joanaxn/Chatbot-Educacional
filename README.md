@@ -29,20 +29,20 @@ O objetivo é permitir que os estudantes obtenham respostas baseadas **exclusiva
 
 - **Frontend React** gere login, dashboards e chat  
 - **Backend FastAPI** trata pedidos, gera embeddings e comunica com o modelo  
-- **Ollama (Gemma 2b-instruct)** gera respostas com base nos documentos  
+- **Ollama (Gemma 2b-instruct)** gera respostas com base nos documentos confirmados  
 - **ChromaDB** armazena vetores para pesquisa semântica  
-- **MySQL** guarda utilizadores, cadeiras e ficheiros confirmados  
-- **InfinityFree** funciona como repositório de ficheiros disponibilizados  
+- **MySQL** guarda utilizadores, inscrições e ficheiros confirmados  
+- **InfinityFree** funciona como repositório para os materiais disponibilizados pelos docentes  
 
 ---
 
 ## Fluxo de Funcionamento
 
-1. O docente seleciona os materiais a disponibilizar  
+1. O docente seleciona os materiais a disponibilizar por cadeira  
 2. O backend extrai texto e gera embeddings  
 3. Os embeddings são guardados em ChromaDB  
-4. O aluno coloca questões no chat  
-5. A IA responde com base **apenas** nos documentos confirmados  
+4. O aluno coloca perguntas no chat da cadeira  
+5. A IA responde com base **apenas nos documentos confirmados**  
 
 ---
 
@@ -50,43 +50,36 @@ O objetivo é permitir que os estudantes obtenham respostas baseadas **exclusiva
 
 - Integração FastAPI + LangChain + ChromaDB  
 - Geração de embeddings por unidade curricular  
-- Persistência de dados com MySQL  
-- Orquestração do pipeline de IA (download → extração → embeddings → resposta)  
-- Otimização do desempenho da IA local  
-- Gestão de ficheiros utilizando InfinityFree  
+- Ligação e persistência de dados em MySQL  
+- Orquestração de todo o pipeline (download → extração → embeddings → resposta)  
+- Otimização do desempenho da IA local via Ollama  
+- Gestão de ficheiros com InfinityFree  
 
 ---
 
 ## Como Executar
 
 ### Backend
-```bash
 cd Backend
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements.txt
 uvicorn main:app --reload
 
----
 
-## Frontend
-```bash
+### Frontend
 cd Frontend
 npm install
 npm start
 
-
-
-Contas de Teste
-Docentes
-Email	Password	Cadeiras
-ana.silva@upt.pt
-	ana123	IA, Redes
-carlos.mendes@upt.pt
-	carlos123	Design Gráfico, Animação
-Alunos
-Email	Password
-joana@upt.pt
-	1234
-ana@upt.pt
-	1234
+### Contas de Teste
+## Docentes
+Email                     	 Password	           Cadeiras
+ana.silva@upt.pt             ana123   	          	IA, Redes  
+carlos.mendes@upt.pt         carlos123               Design Gráfico, Animação
+	
+## Alunos
+Email                        Password
+joana@upt.pt                 1234
+ana@upt.pt                   1234
+	
