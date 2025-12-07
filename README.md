@@ -71,13 +71,13 @@ npm install
 npm start
 
 ### Contas de Teste
+Estes dados são meramente usados para testes, não representando dados reais.
+
 ## Docentes
-Email                     	 Password	           Cadeiras
 ana.silva@upt.pt             ana123   	          	IA, Redes  
-carlos.mendes@upt.pt         carlos123               Design Gráfico, Animação
+carlos.mendes@upt.pt         carlos123              Design Gráfico, Animação
 	
 ## Alunos
-Email                        Password
 joana@upt.pt                 1234
 ana@upt.pt                   1234
 	
