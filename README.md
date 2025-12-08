@@ -32,7 +32,11 @@ O objetivo é permitir que os estudantes realizem perguntas ao chatbot e que obt
 - **Ollama (Gemma 2b-instruct)** gera respostas com base nos documentos confirmados;  
 - **ChromaDB** armazena vetores para pesquisa semântica;  
 - **MySQL** guarda utilizadores, inscrições e ficheiros confirmados;  
-- **InfinityFree** funciona como um simulador do moodle, para os docentes fazerem upload dos materiais.
+- **InfinityFree** funciona como um simulador do moodle, para os docentes fazerem upload dos materiais;
+- Sistema de ficheiros local simula o Moodle onde os docentes disponibilizam os materiais (pasta materiais/CADEIRA).
+
+A versão anterior dependia do InfinityFree para armazenar ficheiros, que servia como simulador do moodle.
+Agora, tudo é local, tornando o projeto mais simples de testar e sem dependências externas.
 ---
 
 ## Fluxo de Funcionamento
