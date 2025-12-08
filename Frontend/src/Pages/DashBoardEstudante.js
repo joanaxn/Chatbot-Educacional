@@ -1,92 +1,100 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-function DashBoardEstudante() {
+function DashboardEstudante() {
   const [aluno, setAluno] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
-    const alunoLogado = JSON.parse(localStorage.getItem('alunoLogado'));
-    if (!alunoLogado) {
-      navigate('/');
-    } else {
-      setAluno(alunoLogado);
+    const a = JSON.parse(localStorage.getItem('alunoLogado'));
+    if (!a) {
+      navigate('/'); // volta ao login se não houver sessão
+      return;
     }
+    setAluno(a);
   }, [navigate]);
 
-  const entrarNoChat = (cadeira) => {
+  const abrirChat = (cadeira) => {
+    // grava a cadeira escolhida no localStorage
     localStorage.setItem('cadeiraSelecionada', cadeira);
-    navigate('/chat');
+    // navega para o chat com a cadeira certa
+    navigate(`/chat?cadeira=${encodeURIComponent(cadeira)}`);
   };
 
   if (!aluno) return null;
 
   return (
-    <div style={{ padding: '40px', fontFamily: 'Arial' }}>
-      <h2 style={{ marginBottom: '30px' }}>🎓 Dashboard do Estudante</h2>
+    <div style={{ padding: '40px 60px' }}>
+      <h2 style={{ fontSize: '28px', marginBottom: '30px' }}>🎓 Dashboard do Estudante</h2>
 
-      <div style={{
-        display: 'flex',
-        justifyContent: 'center',
-        gap: '40px',
-        marginTop: '40px'
-      }}>
-        {/* CONTAINER ESQUERDO */}
+      <div style={{ display: 'flex', gap: '40px', alignItems: 'flex-start' }}>
+        {/* Painel esquerdo: info + cadeiras inscritas */}
         <div style={{
-          backgroundColor:  '#e0e0e0',
+          background: '#e0e0e0',
           padding: '30px',
           borderRadius: '12px',
-          boxShadow: '0 4px 10px rgba(0,0,0,0.1)',
-          width: '300px'
+          width: '520px',
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)'
         }}>
           <p><strong>👤 Nome:</strong> {aluno.nome}</p>
-          <p><strong>🎓 Curso:</strong> {aluno.curso}</p>
+
+          <div style={{ marginTop: 16 }}>
+            <p style={{ marginBottom: 8, fontWeight: 'bold' }}>📚 Cadeiras inscritas:</p>
+            {aluno.cadeiras?.length ? (
+              <ul style={{ margin: 0, paddingLeft: 20 }}>
+                {aluno.cadeiras.map((c, i) => <li key={i}>{c}</li>)}
+              </ul>
+            ) : (
+              <p style={{ color: '#666', fontStyle: 'italic' }}>Sem inscrições.</p>
+            )}
+          </div>
         </div>
 
+        {/* Painel direito: ações por cadeira */}
         <div style={{
-          backgroundColor: '#e0e0e0',
+          background: '#e0e0e0',
           padding: '30px',
           borderRadius: '12px',
-          boxShadow: '0 4px 10px rgba(0,0,0,0.1)',
-          width: '400px',
-          textAlign: 'center',
-          maxHeight: '500px',
-          overflowY: 'auto'  // Adiciona isto para scroll
+          minWidth: '520px',
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)'
         }}>
+          <p style={{ marginBottom: 16, fontWeight: 'bold' }}>🧠 Cadeiras disponíveis</p>
 
-          <h4>📄 Cadeiras Disponíveis</h4>
-          {aluno.cadeiras.map((cadeira, idx) => (
-            <div key={idx} style={{
-              backgroundColor:  '#e0e0e0',
-              marginTop: '15px',
-              padding: '15px',
-              borderRadius: '8px',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              boxShadow: '0 2px 6px rgba(0,0,0,0.05)'
-            }}>
-              <span style={{ marginBottom: '10px' }}>{cadeira}</span>
-              <button
-                onClick={() => entrarNoChat(cadeira)}
-                style={{
-                  backgroundColor: 'royalblue',
-                  color: 'white',
-                  padding: '8px 14px',
-                  border: 'none',
-                  borderRadius: '5px',
-                  cursor: 'pointer',
-                  fontWeight: 'bold'
-                }}
-              >
-                Abrir Chatbot
-              </button>
-            </div>
-          ))}
+          {aluno.cadeiras?.length ? (
+            aluno.cadeiras.map((c, i) => (
+              <div key={i} style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                background: '#f4f4f4',
+                borderRadius: 8,
+                padding: '14px 16px',
+                marginBottom: 12
+              }}>
+                <span>{c}</span>
+                <button
+                  onClick={() => abrirChat(c)}
+                  style={{
+                    background: 'royalblue',
+                    color: 'white',
+                    padding: '8px 14px',
+                    border: 'none',
+                    borderRadius: 6,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Abrir Chatbot
+                </button>
+              </div>
+            ))
+          ) : (
+            <p style={{ color: '#666', fontStyle: 'italic' }}>Sem cadeiras para abrir.</p>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-export default DashBoardEstudante;
+export default DashboardEstudante;
+ 
