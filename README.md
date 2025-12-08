@@ -78,10 +78,10 @@ Estes dados são meramente usados para testes, não representando dados reais.
 
 ## Docentes
 ana.silva@upt.pt             ana123   	          	IA, Redes  
-carlos.mendes@upt.pt         carlos123              Design Gráfico, Animação
 	
 ## Alunos
 joana@upt.pt                 1234
 
-ana@upt.pt                   1234
+## Autora
+Projeto desenvolvido em grupo, tendo eu, Joana Nogueira, implementado o backend deste projeto.
 	
