@@ -54,8 +54,7 @@ Agora, tudo é local, tornando o projeto mais simples de testar e sem dependênc
 - Geração de embeddings por unidade curricular;  
 - Ligação e persistência de dados em MySQL;
 - Orquestração de todo o pipeline (download → extração → embeddings → resposta);  
-- Otimização do desempenho da IA local via Ollama;  
-- Gestão de ficheiros com InfinityFree. 
+- Otimização do desempenho da IA local via Ollama.
 
 ---
 
